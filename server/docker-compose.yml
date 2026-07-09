@@ -1,0 +1,15 @@
+services:
+  agy-sync:
+    image: lscr.io/linuxserver/openssh-server:latest
+    container_name: agy-sync
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - PUBLIC_KEY=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBZ24gY5zLBuTKhfzjhSnFapby9koFyoBc2mc0YLPKsQ dice@DESKTOP-TH8PAC7
+      - USER_NAME=agysync
+      - PASSWORD_ACCESS=false
+    volumes:
+      - /srv/agy-brain:/data/brain
+    ports:
+      - "2222:2222"
+    restart: unless-stopped
