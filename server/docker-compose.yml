@@ -5,7 +5,7 @@ services:
     environment:
       - PUID=1000
       - PGID=1000
-      - PUBLIC_KEY=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBZ24gY5zLBuTKhfzjhSnFapby9koFyoBc2mc0YLPKsQ dice@DESKTOP-TH8PAC7
+      - PUBLIC_KEY="your ssh public key here"
       - USER_NAME=agysync
       - PASSWORD_ACCESS=false
     volumes:
