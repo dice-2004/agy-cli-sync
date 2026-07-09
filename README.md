@@ -96,6 +96,34 @@ bash /path/to/setup-agy-start.sh
 ```
 
 ---
+## System configuration
+```mermaid
+flowchart LR
+    subgraph Host["Host Machine (WSL / Ubuntu)"]
+        direction TB
+        OriginalAgy["agy binary\nAuth cache\nSSH Private Key"]
+    end
+
+    subgraph DevContainer["Disposable Env (Dev Container)"]
+        direction TB
+        SharedDir["Shared Directory\n(scratch / .local)"]
+        AgyCmd["agy command"]
+        SyncScript["Background Sync\n(rsync loop)"]
+        
+        SharedDir -. Symlink .-> AgyCmd
+        SharedDir -. Use Key .-> SyncScript
+    end
+
+    subgraph CentralServer["Central Sync Server (10.10.10.51)"]
+        direction TB
+        SSHD["SSH Server\n(port: 2222)"]
+        BrainData[/"Conversation History\n(brain)"/]
+        SSHD --- BrainData
+    end
+
+    OriginalAgy == "1. Prep (Copy)" ===> SharedDir
+    SyncScript <== "2. Two-way Sync (every 2s)" ===> SSHD
+```
 
 ## 💡 Verification
 
