@@ -99,19 +99,31 @@ bash /path/to/setup-agy-start.sh
 ## System configuration
 ```mermaid
 flowchart LR
-    subgraph Host["Host Machine (WSL / Ubuntu)"]
+    subgraph ClientA["Pattern A: Dev Container Setup"]
         direction TB
-        OriginalAgy["agy binary\nAuth cache\nSSH Private Key"]
+        subgraph Host["Host Machine (WSL / Ubuntu)"]
+            OriginalAgy["agy binary / Auth\nSSH Private Key"]
+        end
+
+        subgraph DevContainer["Disposable Env (Dev Container)"]
+            SharedDir["Shared Directory\n(scratch)"]
+            AgyCmdA["agy command"]
+            SyncScriptA["Background Sync\n(rsync loop)"]
+            
+            SharedDir -. Symlink .-> AgyCmdA
+            SharedDir -. Use Key .-> SyncScriptA
+        end
+        OriginalAgy == "1. Prep (Copy)" ===> SharedDir
     end
 
-    subgraph DevContainer["Disposable Env (Dev Container)"]
+    subgraph ClientB["Pattern B: Standalone Host (Multiple)"]
         direction TB
-        SharedDir["Shared Directory\n(scratch / .local)"]
-        AgyCmd["agy command"]
-        SyncScript["Background Sync\n(rsync loop)"]
+        HostB["Another Host (Laptop, etc.)"]
+        AgyCmdB["agy command"]
+        SyncScriptB["Background Sync\n(rsync loop, etc.)"]
         
-        SharedDir -. Symlink .-> AgyCmd
-        SharedDir -. Use Key .-> SyncScript
+        HostB --- AgyCmdB
+        HostB -. Use Key .-> SyncScriptB
     end
 
     subgraph CentralServer["Central Sync Server (10.10.10.51)"]
@@ -121,8 +133,8 @@ flowchart LR
         SSHD --- BrainData
     end
 
-    OriginalAgy == "1. Prep (Copy)" ===> SharedDir
-    SyncScript <== "2. Two-way Sync (every 2s)" ===> SSHD
+    SyncScriptA <== "2. Two-way Sync" ===> SSHD
+    SyncScriptB <== "Two-way Sync" ===> SSHD
 ```
 
 ## 💡 Verification
