@@ -3,6 +3,7 @@
 A project for two-way synchronization of `antigravity-CLI` (agy) configuration files and conversation history between a disposable environment (such as a Dev Container) and a central server.
 
 By using the scripts in this repository, you can retain your past conversation history (brain) and continue using `agy` seamlessly, even if you rebuild your container.
+(Update) Since we have confirmed cases where data becomes corrupted when synchronization is performed while agy is running, data synchronization is now limited to startup and shutdown only.
 
 > **Environment Assumptions**
 > To allow anyone to reproduce this setup, this document uses the sync server IP address `10.10.10.51` and SSH port `2222`. Please adjust these values according to your actual environment.
