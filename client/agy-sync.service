@@ -1,0 +1,16 @@
+[Unit]
+Description=Antigravity CLI (agy) brain rsync sync service with pause control
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+ExecStartPre=/bin/mkdir -p %h/.gemini/antigravity-cli/conversations
+# %h は systemd におけるユーザーのホームディレクトリ (~/) を指す標準識別子です
+# 配置した setup-agy-start.sh のパスに合わせて変更してください (例: %h/.local/bin/setup-agy-start.sh)
+ExecStart=/bin/bash %h/.config/systemd/user/setup-agy-start.sh
+
+[Install]
+WantedBy=default.target

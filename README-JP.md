@@ -4,9 +4,22 @@
 
 このリポジトリに含まれるスクリプトを利用することで、コンテナを再作成しても過去の会話履歴（brain）を保持でき、継続して `agy` を利用できます。
 
-> **前提環境**
->
-> 誰でも同じ環境を再現できるよう、このドキュメントでは同期サーバーの IP アドレスを `10.10.10.51`、SSH ポートを `2222` としています。実際の環境に合わせて適宜変更してください。
+---
+
+# 🛡️ 安全な同期メカニズム（SQLite DB 破損防止）
+
+`antigravity-CLI`（`agy`）は会話履歴の保存に SQLite データベース（WAL モード）を使用しています。`agy` が会話を保存・更新中に背景で `rsync` 同期が介入すると、WAL ファイルとの不整合が発生して DB が破損し、CLI がハングアップする原因となります。
+
+`agy-cli-sync` では、**プロセス監視型の同期スキップ機構**により、この問題を完全に回避しています：
+
+1. **`agy` プロセス起動中の自動ポーズ**:
+   - 常時同期サービスが背景で `agy` プロセスの起動状態を常時監視します。
+   - `agy` プロセスが起動している間は、`rsync` 同期を一切行わずスキップ（一時停止）します。
+2. **会話終了直後の自動確定同期**:
+   - `agy` プロセスの終了（会話完了）を検出した直後に、1 回即時同期（Push & Pull）を実行し、会話履歴を確実にサーバーへ保存します。
+   - その後、通常（2秒おき）の常時同期状態へと自動復帰します。
+3. **完全な非侵襲（バイナリ・設定の変更なし）**:
+   - ユーザーの `agy` バイナリや環境設定・エイリアス等には一切手を加えません。ユーザーは普段通り `agy` コマンドを実行するだけです。
 
 ---
 
@@ -55,106 +68,50 @@ docker-compose up -d
 
 ---
 
-# 2. クライアント側の準備（ホスト：WSL / Ubuntu など）
+# 2. クライアント側の準備（ホスト / Dev Container）
 
-コンテナ内から `agy` を利用するため、ホスト側のユーザー固有ファイルと、手順0で作成した秘密鍵を、コンテナから参照できる共有ディレクトリ（例：プロジェクト内の `.local/`）へコピーします。
+コンテナ内やホストから `agy` を利用するため、`client/` ディレクトリ内のスクリプト群および必要な認証情報を共有ディレクトリ（例：プロジェクト内の `.local/` や任意の配置場所）へコピーします。
 
-以下は一例です。環境に合わせてパスを変更してください。
+### 📦 スクリプト一覧 (`client/` 配下)
 
-```bash
-# 1. 共有ディレクトリを作成
-mkdir -p /path/to/project/.local/.gemini
-
-# 2. agy 実行ファイルをコピー
-cp ~/.local/bin/agy /path/to/project/.local/agy
-
-# 3. ログイン状態（認証キャッシュ）をコピー
-cp -r ~/.gemini/antigravity-cli /path/to/project/.local/.gemini/
-
-# 4. 手順0で作成した秘密鍵をコピー
-cp ~/.ssh/agy_key /path/to/project/.local/agy_key
-```
-
-> **補足**
->
-> このリポジトリに含まれるセットアップスクリプト（`setup-agy-init.sh`、`setup-agy-start.sh`）も、コンテナ内から参照できる場所へ配置してください。
+| ファイル名 | 役割 | 実行方法 |
+| :--- | :--- | :--- |
+| **`setup-agy-init.sh`** | 初回初期化スクリプト (`rsync`確認・初回Pull・常駐起動) | **初回に 1 回だけ手動実行** |
+| **`setup-agy-start.sh`** | 2回目以降の同期開始スクリプト (プロセス監視付き常駐同期ループ) | 再起動時に自動/手動実行 (または systemd が呼び出し) |
+| **`agy-sync.service`** | ホスト環境用の systemd ユーザーサービス定義ファイル | `systemctl` で登録 |
 
 ---
 
-# 3. コンテナのセットアップと同期開始
+# 3. コンテナ / ホストでのセットアップと常駐化
 
-Dev Container などのコンテナへ接続したら、このリポジトリに含まれるセットアップスクリプトを実行して同期を開始します。
-
-利用状況に応じて、以下のどちらかを実行してください。
-
-## A. コンテナを新規作成した直後
-
-このスクリプトでは以下を自動で実施します。
-
-* agy 本体と認証情報のシンボリックリンク作成
-* `rsync` のインストール
-* 初回同期（サーバーから取得）
-* バックグラウンドで継続同期を開始（2秒ごと）
+### A. Dev Container 環境でのセットアップ
+Dev Container 内へ接続後、用途に合わせて以下を実行してください。
 
 ```bash
+# 新規コンテナ作成直後 (初回初期化)
 bash /path/to/setup-agy-init.sh
-```
 
----
-
-## B. 既存コンテナを再起動した場合
-
-すでに `rsync` がインストール済みであることを前提としています。
-
-シンボリックリンクを確認し、バックグラウンド同期のみを開始します。
-
-```bash
+# 既存コンテナ再起動時
 bash /path/to/setup-agy-start.sh
 ```
 
 ---
 
-# システム構成
+### B. ホスト (WSL Ubuntu) での常時常駐化設定（systemd ユーザーサービス）
 
-```mermaid
-flowchart LR
-    subgraph ClientA["パターンA：Dev Container 構成"]
-        direction TB
-        subgraph Host["ホストマシン（WSL / Ubuntu）"]
-            OriginalAgy["agy本体 / 認証情報\nSSH秘密鍵"]
-        end
+ホストの Ubuntu 起動時に自動で安全な同期常駐を行う場合、付属の `agy-sync.service` を配置します。
 
-        subgraph DevContainer["使い捨て環境（Dev Container）"]
-            SharedDir["共有ディレクトリ\n(scratch)"]
-            AgyCmdA["agy コマンド"]
-            SyncScriptA["バックグラウンド同期\n(rsyncループ)"]
+```bash
+# 1. サービスファイルの作成・配置 (クライアント側の配置場所からコピー)
+mkdir -p ~/.config/systemd/user/
+cp /path/to/client/agy-sync.service ~/.config/systemd/user/
 
-            SharedDir -. シンボリックリンク .-> AgyCmdA
-            SharedDir -. 秘密鍵を利用 .-> SyncScriptA
-        end
+# 2. 初回セットアップ (rsync確認・初回Pull)
+bash /path/to/client/setup-agy-init.sh
 
-        OriginalAgy == "① 事前コピー" ===> SharedDir
-    end
-
-    subgraph ClientB["パターンB：通常ホスト（複数端末）"]
-        direction TB
-        HostB["別ホスト（ノートPCなど）"]
-        AgyCmdB["agy コマンド"]
-        SyncScriptB["バックグラウンド同期\n(rsyncループなど)"]
-
-        HostB --- AgyCmdB
-        HostB -. 秘密鍵を利用 .-> SyncScriptB
-    end
-
-    subgraph CentralServer["中央同期サーバー（10.10.10.51）"]
-        direction TB
-        SSHD["SSHサーバー\n(port:2222)"]
-        BrainData[/"会話履歴\n(brain)"/]
-        SSHD --- BrainData
-    end
-
-    SyncScriptA <== "② 双方向同期" ===> SSHD
-    SyncScriptB <== "双方向同期" ===> SSHD
+# 3. systemd ユーザーサービスの有効化と起動
+systemctl --user daemon-reload
+systemctl --user enable --now agy-sync.service
 ```
 
 ---
@@ -164,11 +121,9 @@ flowchart LR
 セットアップ完了後は、以下のコマンドで正常に動作しているか確認できます。
 
 ```bash
-# agy コマンドが利用可能か確認
-agy --version
+# バックグラウンドで同期ループが動作しているか確認
+ps aux | grep setup-agy-start.sh
 
-# バックグラウンドで rsync が動作しているか確認
-ps aux | grep rsync
+# systemd ユーザーサービスのステータス確認 (ホスト側)
+systemctl --user status agy-sync.service
 ```
-
-これらが正常に動作していれば、コンテナを再作成しても設定ファイルや会話履歴（brain）が中央サーバーと継続的に双方向同期されるようになります。

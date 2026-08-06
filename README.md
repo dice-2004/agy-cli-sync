@@ -3,10 +3,23 @@
 A project for two-way synchronization of `antigravity-CLI` (agy) configuration files and conversation history between a disposable environment (such as a Dev Container) and a central server.
 
 By using the scripts in this repository, you can retain your past conversation history (brain) and continue using `agy` seamlessly, even if you rebuild your container.
-(Update) Since we have confirmed cases where data becomes corrupted when synchronization is performed while agy is running, data synchronization is now limited to startup and shutdown only.
 
-> **Environment Assumptions**
-> To allow anyone to reproduce this setup, this document uses the sync server IP address `10.10.10.51` and SSH port `2222`. Please adjust these values according to your actual environment.
+---
+
+## 🛡️ Safe Synchronization Mechanism (SQLite DB Corruption Prevention)
+
+`antigravity-CLI` (`agy`) uses SQLite databases (WAL mode) to store conversation history. Performing `rsync` synchronization while `agy` is writing to the database can cause inconsistencies with `.db-wal` files, corrupting the database and leading to CLI hangs.
+
+`agy-cli-sync` prevents this issue with a **non-intrusive process-monitoring mechanism**:
+
+1. **Automatic Sync Pause During Session**:
+   - The background sync service constantly monitors active `agy` processes.
+   - While `agy` is running, `rsync` synchronization is automatically skipped.
+2. **Automatic Post-Session Sync**:
+   - Immediately after the `agy` process finishes (conversation ends), a single instant sync (Push & Pull) is executed to secure conversation data on the server.
+   - The service then automatically resumes normal background synchronization.
+3. **Zero Configuration / Non-Intrusive**:
+   - Your `agy` binary and shell configurations are completely untouched. You simply run `agy` as usual.
 
 ---
 
@@ -17,7 +30,6 @@ Run the following command in your host machine's terminal (e.g., WSL, Ubuntu) to
 
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/agy_key -N ""
-
 ```
 
 This will generate a private key (`~/.ssh/agy_key`) and a public key (`~/.ssh/agy_key.pub`).
@@ -26,7 +38,6 @@ Display the contents of the public key and copy it.
 ```bash
 cat ~/.ssh/agy_key.pub
 # Example output: ssh-ed25519 AAAAC3Nza... (string specific to your environment)
-
 ```
 
 ---
@@ -43,110 +54,66 @@ Once modified, start the container.
 
 ```bash
 docker-compose up -d
-
 ```
 
 ---
 
-## 2. Client-side Preparation (Host side: WSL / Ubuntu, etc.)
+## 2. Client-side Preparation (Host side / Dev Container)
 
-To use `agy` from within the container, you need to copy your user-specific files and the private key created earlier to a shared directory accessible by the container (e.g., a `.local/` directory inside your project).
+Copy the scripts in `client/` and the required authentication cache to a shared directory accessible by the container (e.g., `.local/` inside your project).
 
-Place the following files in the shared directory using your host's terminal. (*Adjust the paths to match your environment.*)
+### 📦 Scripts (`client/` Directory)
 
-```bash
-# 1. Create a directory for sharing
-mkdir -p /path/to/project/.local/.gemini
-
-# 2. Copy the agy binary
-cp ~/.local/bin/agy /path/to/project/.local/agy
-
-# 3. Copy login state (authentication cache)
-cp -r ~/.gemini/antigravity-cli /path/to/project/.local/.gemini/
-
-# 4. Copy the "private key" created in Step 0
-cp ~/.ssh/agy_key /path/to/project/.local/agy_key
-
-```
-
-*Note: Ensure that the setup scripts from this repository (`setup-agy-init.sh`, `setup-agy-start.sh`) are also placed in a location accessible from inside the container.*
+| Script Name | Purpose | Execution Mode |
+| :--- | :--- | :--- |
+| **`setup-agy-init.sh`** | Initial setup script (`rsync` check, initial pull, background sync) | Run **once** at initial setup |
+| **`setup-agy-start.sh`** | Subsequent startup script (starts process-monitoring sync loop) | Run on container restart or via systemd |
+| **`agy-sync.service`** | Systemd user service definition for host machine | Register via `systemctl` |
 
 ---
 
 ## 3. Container Setup and Sync Initialization
 
-Once attached to your container environment (like a Dev Container), run the setup script included in this repository to start the synchronization.
-Execute one of the following scripts depending on your situation:
-
-### A. On Initial Container Build
-
-This script creates symlinks for the binary and credentials, installs `rsync`, performs the initial pull, and starts the continuous background sync process (every 2 seconds).
+### A. Dev Container Setup
+Once attached to your container environment, run the setup script:
 
 ```bash
+# On initial container build
 bash /path/to/setup-agy-init.sh
 
-```
-
-### B. On Subsequent Container Starts
-
-Use this when restarting a container where `rsync` is already installed. This script simply re-verifies the links and starts the sync process.
-
-```bash
+# On subsequent container starts
 bash /path/to/setup-agy-start.sh
-
 ```
 
 ---
-## System configuration
-```mermaid
-flowchart LR
-    subgraph ClientA["Pattern A: Dev Container Setup"]
-        direction TB
-        subgraph Host["Host Machine (WSL / Ubuntu)"]
-            OriginalAgy["agy binary / Auth\nSSH Private Key"]
-        end
 
-        subgraph DevContainer["Disposable Env (Dev Container)"]
-            SharedDir["Shared Directory\n(scratch)"]
-            AgyCmdA["agy command"]
-            SyncScriptA["Background Sync\n(rsync loop)"]
-            
-            SharedDir -. Symlink .-> AgyCmdA
-            SharedDir -. Use Key .-> SyncScriptA
-        end
-        OriginalAgy == "1. Prep (Copy)" ===> SharedDir
-    end
+### B. Host Machine Setup (systemd User Service)
 
-    subgraph ClientB["Pattern B: Standalone Host (Multiple)"]
-        direction TB
-        HostB["Another Host (Laptop, etc.)"]
-        AgyCmdB["agy command"]
-        SyncScriptB["Background Sync\n(rsync loop, etc.)"]
-        
-        HostB --- AgyCmdB
-        HostB -. Use Key .-> SyncScriptB
-    end
+To run as an automatic background service on WSL/Ubuntu startup:
 
-    subgraph CentralServer["Central Sync Server (10.10.10.51)"]
-        direction TB
-        SSHD["SSH Server\n(port: 2222)"]
-        BrainData[/"Conversation History\n(brain)"/]
-        SSHD --- BrainData
-    end
+```bash
+# 1. Copy service file
+mkdir -p ~/.config/systemd/user/
+cp /path/to/client/agy-sync.service ~/.config/systemd/user/
 
-    SyncScriptA <== "2. Two-way Sync" ===> SSHD
-    SyncScriptB <== "Two-way Sync" ===> SSHD
+# 2. Initial setup
+bash /path/to/client/setup-agy-init.sh
+
+# 3. Enable and start systemd user service
+systemctl --user daemon-reload
+systemctl --user enable --now agy-sync.service
 ```
+
+---
 
 ## 💡 Verification
 
 After running the script, you can verify if everything is working correctly with the following commands:
 
 ```bash
-# Check if the agy command is recognized
-agy --version
+# Check if the sync process is running in the background
+ps aux | grep setup-agy-start.sh
 
-# Check if the sync process (rsync) is running in the background
-ps aux | grep rsync
-
+# Check systemd user service status (Host)
+systemctl --user status agy-sync.service
 ```
