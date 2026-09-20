@@ -14,7 +14,10 @@ fi
 SYNC_SERVER="agysync@10.10.10.51"
 SYNC_PORT="2222"
 CONVERSATIONS_DIR="${HOME}/.gemini/antigravity-cli/conversations"
+AGY_AUTH_SOURCE="${SCRATCH_DIR}/.gemini/antigravity-cli"
 
+# ↓ ここから追加
+echo "[+] agy コマンドのリンク作成..."
 if [ -f "${SCRATCH_DIR}/agy" ]; then
   chmod +x "${SCRATCH_DIR}/agy"
   if [ "$(id -u)" -eq 0 ]; then
@@ -23,6 +26,13 @@ if [ -f "${SCRATCH_DIR}/agy" ]; then
     sudo ln -sf "${SCRATCH_DIR}/agy" /usr/local/bin/agy
   fi
 fi
+
+echo "[+] 認証情報のリンク作成..."
+mkdir -p "${HOME}/.gemini/antigravity-cli"
+if [ -d "${AGY_AUTH_SOURCE}" ]; then
+  ln -sf "${AGY_AUTH_SOURCE}"/* "${HOME}/.gemini/antigravity-cli/" 2>/dev/null || true
+fi
+# ↑ ここまで追加
 
 echo "[1/3] rsync の確認..."
 if command -v rsync >/dev/null 2>&1; then
