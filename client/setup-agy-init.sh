@@ -15,6 +15,15 @@ SYNC_SERVER="agysync@10.10.10.51"
 SYNC_PORT="2222"
 CONVERSATIONS_DIR="${HOME}/.gemini/antigravity-cli/conversations"
 
+if [ -f "${SCRATCH_DIR}/agy" ]; then
+  chmod +x "${SCRATCH_DIR}/agy"
+  if [ "$(id -u)" -eq 0 ]; then
+    ln -sf "${SCRATCH_DIR}/agy" /usr/local/bin/agy
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo ln -sf "${SCRATCH_DIR}/agy" /usr/local/bin/agy
+  fi
+fi
+
 echo "[1/3] rsync の確認..."
 if command -v rsync >/dev/null 2>&1; then
   echo "✓ rsync は既にインストールされています。"
